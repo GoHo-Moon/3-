@@ -158,65 +158,52 @@ def analyze_data(df, keyword, min_len):
 # plotly, seaborn, altair 시각화에 공통으로 사용되는 시계열 데이터 전처리
 # pubDate를 기준으로 일별 기사 건수 및 상위 N개 키워드의 일별 등장 빈도 계산..!
 
-# ----------------------------------------------------------------------
 @st.cache_data
 def get_time_series_data(df, freq, min_len, top_n=5):
     """
-    일별 기사 건수, 상위 N개 키워드의 일별 등장 빈도를 계산하고,
-    분석 기간을 반환합니다.
+    일별 기사 건수(daily_volume)와
+    상위 N개 키워드의 일별 등장 빈도(time_series_df)를 반환
     """
-    
-    # pubDate를 날짜(Date) 형식으로 변환하고 날짜만 남깁니다.
-    # df['date']는 datetime.date 객체가 됩니다.
-    df['date'] = pd.to_datetime(df['pubDate']).dt.date
-    
-    
-    # 1. 일별 기사 건수 
-    daily_volume = df.groupby('date').size().reset_index(name='기사_건수')
-    
-    # 2. 분석 기간 정보 추출 
-    analysis_period = "데이터 없음"
-    if not daily_volume.empty:
-        # datetime.date 객체에서 최소/최대 날짜 추출
-        start_date = daily_volume['date'].min() 
-        end_date = daily_volume['date'].max()
-        # 표시 형식 지정 (예: 2024-01-01 ~ 2024-12-31)
-        analysis_period = f"{start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}"
-    
-    # 3. 상위 N개 키워드 목록
-    top_words = [word for word, count in freq.most_common(top_n)]
-    
-    # 4. 일별 키워드 빈도 (Altair용)
+    df_copy = df.copy()
+
+    # pubDate -> datetime 안전 변환
+    df_copy["datetime"] = pd.to_datetime(df_copy["pubDate"], errors="coerce")
+    df_copy = df_copy.dropna(subset=["datetime"])
+
+    # 날짜만
+    df_copy["date"] = df_copy["datetime"].dt.date
+
+    # 1) 일별 기사 건수
+    daily_volume = df_copy.groupby("date").size().reset_index(name="기사_건수")
+
+    # 2) 상위 N개 키워드
+    top_words = [word for word, _ in freq.most_common(int(top_n))]
+
+    # 3) 일별 키워드 빈도
     all_time_series_data = []
     okt = Okt()
-    
-    # 불용어 목록 로드 (get_stop_words 함수가 있다고 가정)
     stop_words = get_stop_words(st.session_state.get("search_keyword", ""))
-    
-    # 최소 단어 길이 변수 (함수 인수로 받은 min_len 사용)
-    min_word_len = min_len 
 
-    for date, group_df in df.groupby('date'):
-        # 해당 일자의 모든 텍스트 결합
-        daily_text = " ".join(group_df["title"].fillna("").astype(str) + " " + group_df["description"].fillna("").astype(str))
-        
-        # 형태소 분석 및 필터링
+    for date, group_df in df_copy.groupby("date"):
+        daily_text = " ".join(
+            group_df["title"].fillna("").astype(str) + " " + group_df["description"].fillna("").astype(str)
+        )
+
         nouns = okt.nouns(daily_text)
-        daily_nouns = [n for n in nouns if len(n) >= min_word_len and n not in stop_words]
+        daily_nouns = [n for n in nouns if len(n) >= min_len and n not in stop_words]
         daily_freq = Counter(daily_nouns)
-        
+
         for word in top_words:
             all_time_series_data.append({
-                '날짜': date,
-                '단어': word,
-                '빈도': daily_freq.get(word, 0)
+                "날짜": date,
+                "단어": word,
+                "빈도": daily_freq.get(word, 0)
             })
-            
-    time_series_df = pd.DataFrame(all_time_series_data)
-    
-    # 반환 값 순서: (일별 기사 건수, 일별 키워드 빈도, 분석 기간 문자열)
-    # daily_volume에는 이제 요일 관련 컬럼이 전혀 없습니다.
-    return daily_volume, time_series_df.sort_values('날짜'), analysis_period
+
+    time_series_df = pd.DataFrame(all_time_series_data).sort_values("날짜")
+
+    return daily_volume, time_series_df
+
 # ======================================================
 # 3) 사이드바 (인터렉티브한 조작 구현~)
 # ======================================================
