@@ -1,6 +1,10 @@
 streamlit
 pandas
-networkx
 matplotlib
-konlpy
 wordcloud
+konlpy
+networkx
+seaborn
+altair
+plotly
+jpype1  # konlpy 실행에 필수 (강의록 참조)
